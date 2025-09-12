@@ -47,16 +47,6 @@ jobs:
           pwd
           ls -la
           find . -maxdepth 2 -type f -name "*.sh" -o -name "*.py"
-
-      - name: Deploy Lambda + API (/health)
-        id: deploy
-        run: |
-          chmod +x package_lambda.sh check_health.sh
-          bash ./package_lambda.sh
-          URL=$(python3 ./api_setup.py)
-          echo "HEALTH_URL=$URL" >> "$GITHUB_ENV"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-         
       - name: Debug API GW & Lambda policy
         run: |
           API_ID=$(echo "$HEALTH_URL" | awk -F'/' '{print $5}')
@@ -73,6 +63,14 @@ jobs:
           aws --endpoint-url=$LSE apigateway test-invoke-method \
             --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq -r '.status, .body'
 
+      - name: Deploy Lambda + API (/health)
+        id: deploy
+        run: |
+          chmod +x package_lambda.sh check_health.sh
+          bash ./package_lambda.sh
+          URL=$(python3 ./api_setup.py)
+          echo "HEALTH_URL=$URL" >> "$GITHUB_ENV"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Health check (should be OK)
         run: |

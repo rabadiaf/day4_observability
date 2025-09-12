@@ -11,6 +11,8 @@ if [ "$HTTP" = "200" ]; then
   exit 0
 else
   echo "ALERT: health check failed (status=$HTTP)"
+  # opcional: muestra body devuelto por APIGW
+  cat /tmp/health.json || true
   exit 1
 fi
 
