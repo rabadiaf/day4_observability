@@ -1,0 +1,82 @@
+name: day4-observability
+on:
+  push:
+    paths:
+      - 'day4_observability/**'
+      - '.github/workflows/day4-observability.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy-and-check:
+    runs-on: ubuntu-latest
+
+    # Levanta LocalStack como service para este job
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: lambda,apigateway,s3,iam,sts,cloudwatch
+        options: >-
+          --name localstack_ci
+
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      LSE: http://localhost:4566
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y zip curl
+          pip install --upgrade pip
+          pip install boto3 awscli
+
+      - name: Wait for LocalStack
+        run: |
+          for i in {1..40}; do
+            aws --endpoint-url=$LSE s3 ls >/dev/null 2>&1 && break
+            echo "waiting LocalStack..."; sleep 3
+          done
+
+      - name: Deploy Lambda + API (/health)
+        working-directory: day4_observability
+        id: deploy
+        run: |
+          chmod +x package_lambda.sh check_health.sh
+          bash package_lambda.sh
+          URL=$(python3 api_setup.py)
+          echo "HEALTH_URL=$URL" >> $GITHUB_ENV
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Health check (should be OK)
+        run: |
+          echo "Health URL: $HEALTH_URL"
+          OUT=$(bash day4_observability/check_health.sh "$HEALTH_URL" || true)
+          echo "$OUT"
+          echo "$OUT" | grep -q "OK:"  # falla el job si no hay OK
+
+      # (Opcional) Simular fallo y verificar ALERT
+      - name: Simulate failure (STATUS_CODE=500) and expect ALERT
+        run: |
+          aws --endpoint-url=$LSE lambda update-function-configuration \
+            --function-name obs-health \
+            --environment "Variables={STATUS_CODE=500}"
+          set +e
+          OUT=$(bash day4_observability/check_health.sh "$HEALTH_URL")
+          echo "$OUT"
+          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
+          # recover
+          aws --endpoint-url=$LSE lambda update-function-configuration \
+            --function-name obs-health \
+            --environment "Variables={STATUS_CODE=200}"
+
