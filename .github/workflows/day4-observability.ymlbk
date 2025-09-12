@@ -56,28 +56,13 @@ jobs:
           URL=$(python3 ./api_setup.py)
           echo "HEALTH_URL=$URL" >> "$GITHUB_ENV"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-         
-      - name: Debug API GW & Lambda policy
-        run: |
-          API_ID=$(echo "$HEALTH_URL" | awk -F'/' '{print $5}')
-          echo "API_ID=$API_ID"
-          RES_ID=$(aws --endpoint-url=$LSE apigateway get-resources --rest-api-id "$API_ID" \
-            | jq -r '.items[] | select(.path=="/health") | .id')
-          echo "RES_ID=$RES_ID"
-          echo "Integration:"
-          aws --endpoint-url=$LSE apigateway get-integration \
-            --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq .
-          echo "Lambda policy:"
-          aws --endpoint-url=$LSE lambda get-policy --function-name obs-health | jq .
-          echo "Test invoke via API GW:"
-          aws --endpoint-url=$LSE apigateway test-invoke-method \
-            --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq -r '.status, .body'
-
 
       - name: Health check (should be OK)
         run: |
           echo "Health URL: $HEALTH_URL"
-          bash ./check_health.sh "$HEALTH_URL"
+          OUT=$(bash ./check_health.sh "$HEALTH_URL" || true)
+          echo "$OUT"
+          echo "$OUT" | grep -q "OK:"
 
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
         run: |

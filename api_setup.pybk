@@ -36,28 +36,6 @@ def ensure_api():
     apig.create_deployment(restApiId=api_id, stageName="dev")
     url = f"{LSE}/restapis/{api_id}/dev/_user_request_/health"
     print(url)
-    # ... arriba igual
-    source_arn = f"arn:aws:execute-api:{REG}:{ACC}:{api_id}/*/*/*"  # comodines
-    sid = f"apigw-invoke-{api_id}"
-
-    try:
-      lam.add_permission(
-          FunctionName=FUNC,
-          StatementId=sid,
-          Action="lambda:InvokeFunction",
-          Principal="apigateway.amazonaws.com",
-          SourceArn=source_arn,
-      )
-    except lam.exceptions.ResourceConflictException:
-    # ya existe: lo quitamos y lo recreamos (por si cambió el API o el patrón)
-      lam.remove_permission(FunctionName=FUNC, StatementId=sid)
-      lam.add_permission(
-          FunctionName=FUNC,
-          StatementId=sid,
-          Action="lambda:InvokeFunction",
-          Principal="apigateway.amazonaws.com",
-          SourceArn=source_arn,
-      )
 
 if __name__ == "__main__":
     ensure_api()
