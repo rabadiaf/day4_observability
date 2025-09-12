@@ -81,6 +81,24 @@ jobs:
           echo "HEALTH_URL=$URL"             # visible en logs
           echo "HEALTH_URL=$URL" >> $GITHUB_ENV
           echo "url=$URL"        >> $GITHUB_OUTPUT
+      - name: Warm up & wait for API (no 502)
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          # warm up lambda
+          aws lambda invoke --function-name obs-health --payload '{}' /dev/null --endpoint-url=$LSE || true
+
+          # espera a que APIGW tenga integración lista
+          for i in {1..15}; do
+            CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" "$URL" || echo 000)
+            echo "try $i: HTTP=$CODE"
+            [ "$CODE" = "200" -o "$CODE" = "500" ] && break
+            sleep 2
+          done
+
+          # muestra qué devolvió (útil para los pasos siguientes)
+          echo "Response: $(cat /tmp/health.json || echo '{}')"
+            
 
       - name: Debug API GW & Lambda policy (only if failing later)
         if: ${{ always() }}
