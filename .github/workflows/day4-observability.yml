@@ -45,10 +45,16 @@ jobs:
             aws --endpoint-url=$LSE s3 ls >/dev/null 2>&1 && break
             echo "waiting LocalStack..."; sleep 3
           done
+      - name: Debug paths
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          find . -maxdepth 2 -type f -name "*.sh" -o -name "*.py"
 
       - name: Deploy Lambda + API (/health)
         id: deploy
-          #working-directory: ./day4_observability
+        working-directory: ./day4_observability
         run: |
           chmod +x package_lambda.sh check_health.sh
           bash package_lambda.sh
