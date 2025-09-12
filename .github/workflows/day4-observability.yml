@@ -66,16 +66,46 @@ jobs:
       - name: Deploy Lambda + API (/health)
         id: deploy
         run: |
-          chmod +x package_lambda.sh check_health.sh
-          bash ./package_lambda.sh
-          URL=$(python3 ./api_setup.py)
+          set -euo pipefail
+          echo "== Build lambda.zip =="
+          zip -9 -q lambda.zip lambda_function.py
+
+          echo "== Ensure IAM role =="
+          aws --endpoint-url=$LSE iam get-role --role-name lambda-ex >/dev/null 2>&1 \
+            || aws --endpoint-url=$LSE iam create-role \
+                --role-name lambda-ex \
+                --assume-role-policy-document '{
+                  "Version":"2012-10-17",
+                  "Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]
+                }' >/dev/null
+
+          echo "== Create/Update function =="
+          if aws --endpoint-url=$LSE lambda get-function --function-name obs-health >/dev/null 2>&1; then
+            aws --endpoint-url=$LSE lambda update-function-code \
+              --function-name obs-health --zip-file fileb://lambda.zip >/dev/null
+          else
+            aws --endpoint-url=$LSE lambda create-function \
+              --function-name obs-health \
+              --runtime python3.11 \
+              --role arn:aws:iam::000000000000:role/lambda-ex \
+              --handler lambda_function.lambda_handler \
+              --zip-file fileb://lambda.zip >/dev/null
+          fi
+
+          echo "== List functions (sanity) =="
+          aws --endpoint-url=$LSE lambda list-functions
+
+          echo "== Setup API Gateway =="
+          URL=$(python3 api_setup.py)
+          echo "HEALTH_URL=$URL"
           echo "HEALTH_URL=$URL" >> "$GITHUB_ENV"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Health check (should be OK)
         run: |
-          echo "Health URL: $HEALTH_URL"
-          bash ./check_health.sh "$HEALTH_URL"
+          URL="${{ steps.deploy.outputs.url }}"
+          echo "Health URL: $URL"
+          bash ./check_health.sh "$URL"
 
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
         run: |

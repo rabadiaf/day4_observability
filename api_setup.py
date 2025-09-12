@@ -74,19 +74,15 @@ def ensure_api():
     # 6) Deploy del stage
     apig.create_deployment(restApiId=api_id, stageName=STAGE)
 
-    # 7) Prueba directa (diagnóstico): test-invoke-method
+    # 7) Prueba directa por API GW (debug)
     test = apig.test_invoke_method(
         restApiId=api_id, resourceId=res_id, httpMethod="GET"
     )
-    # Si no es 200, imprime diagnóstico a stderr
     if test.get("status") != 200:
-        print(
-            json.dumps(
-                {"api_id": api_id, "res_id": res_id, "test_status": test.get("status"), "body": test.get("body")},
-                indent=2,
-            ),
-            file=sys.stderr,
-        )
+        print(json.dumps(
+            {"api_id": api_id, "res_id": res_id,
+             "test_status": test.get("status"),
+             "body": test.get("body")}, indent=2), file=sys.stderr)
 
     # 8) URL final
     url = f"{LSE}/restapis/{api_id}/{STAGE}/_user_request_/{PATH}"
