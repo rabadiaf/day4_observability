@@ -2,19 +2,16 @@ name: day4-observability
 on:
   push:
     branches: [main]
+# ...
 jobs:
   deploy-and-check:
     runs-on: ubuntu-latest
-
     services:
       localstack:
         image: localstack/localstack:latest
-        ports:
-          - 4566:4566
+        ports: [ "4566:4566" ]
         env:
           SERVICES: lambda,apigateway,s3,iam,sts,cloudwatch
-        options: --name localstack_ci
-
     env:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -31,55 +28,39 @@ jobs:
 
       - name: Install tools
         run: |
-          sudo apt-get update && sudo apt-get install -y zip curl
+          sudo apt-get update && sudo apt-get install -y zip jq
           pip install --upgrade pip
           pip install boto3 awscli
 
       - name: Wait for LocalStack
         run: |
+          set -e
           for i in {1..40}; do
-            aws --endpoint-url=$LSE s3 ls >/dev/null 2>&1 && break
+            aws --endpoint-url=$LSE sts get-caller-identity >/dev/null 2>&1 && break
             echo "waiting LocalStack..."; sleep 3
           done
-      - name: Debug paths
-        run: |
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          pwd
-          ls -la
-          find . -maxdepth 2 -type f -name "*.sh" -o -name "*.py"
-      - name: Debug API GW & Lambda policy
-        run: |
-          API_ID=$(echo "$HEALTH_URL" | awk -F'/' '{print $5}')
-          echo "API_ID=$API_ID"
-          RES_ID=$(aws --endpoint-url=$LSE apigateway get-resources --rest-api-id "$API_ID" \
-            | jq -r '.items[] | select(.path=="/health") | .id')
-          echo "RES_ID=$RES_ID"
-          echo "Integration:"
-          aws --endpoint-url=$LSE apigateway get-integration \
-            --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq .
-          echo "Lambda policy:"
-          aws --endpoint-url=$LSE lambda get-policy --function-name obs-health | jq .
-          echo "Test invoke via API GW:"
-          aws --endpoint-url=$LSE apigateway test-invoke-method \
-            --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq -r '.status, .body'
+          # extra: espera a que lambda responda
+          for i in {1..40}; do
+            aws --endpoint-url=$LSE lambda list-functions >/dev/null 2>&1 && break
+            echo "waiting Lambda..."; sleep 2
+          done
 
       - name: Deploy Lambda + API (/health)
         id: deploy
         run: |
-          set -euo pipefail
-          echo "== Build lambda.zip =="
+          set -euxo pipefail
+          # build lambda.zip
           zip -9 -q lambda.zip lambda_function.py
 
-          echo "== Ensure IAM role =="
-          aws --endpoint-url=$LSE iam get-role --role-name lambda-ex >/dev/null 2>&1 \
-            || aws --endpoint-url=$LSE iam create-role \
-                --role-name lambda-ex \
-                --assume-role-policy-document '{
-                  "Version":"2012-10-17",
-                  "Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]
-                }' >/dev/null
+          # IAM role para lambda (si no existe)
+          aws --endpoint-url=$LSE iam get-role --role-name lambda-ex >/dev/null 2>&1 || \
+          aws --endpoint-url=$LSE iam create-role --role-name lambda-ex \
+            --assume-role-policy-document '{
+              "Version":"2012-10-17",
+              "Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]
+            }' >/dev/null
 
-          echo "== Create/Update function =="
+          # crear/actualizar lambda obs-health
           if aws --endpoint-url=$LSE lambda get-function --function-name obs-health >/dev/null 2>&1; then
             aws --endpoint-url=$LSE lambda update-function-code \
               --function-name obs-health --zip-file fileb://lambda.zip >/dev/null
@@ -92,33 +73,53 @@ jobs:
               --zip-file fileb://lambda.zip >/dev/null
           fi
 
-          echo "== List functions (sanity) =="
+          # sanity: listar funciones
           aws --endpoint-url=$LSE lambda list-functions
 
-          echo "== Setup API Gateway =="
+          # configurar API + permisos; imprime URL
           URL=$(python3 api_setup.py)
-          echo "HEALTH_URL=$URL"
-          echo "HEALTH_URL=$URL" >> "$GITHUB_ENV"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "HEALTH_URL=$URL"             # visible en logs
+          echo "HEALTH_URL=$URL" >> $GITHUB_ENV
+          echo "url=$URL"        >> $GITHUB_OUTPUT
+
+      - name: Debug API GW & Lambda policy (only if failing later)
+        if: ${{ always() }}
+        run: |
+          set -euxo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          echo "URL=$URL"
+          if [ -z "$URL" ]; then echo "URL vacío: el paso deploy no seteó outputs"; exit 1; fi
+          API_ID=$(echo "$URL" | awk -F'/' '{print $5}')
+          echo "API_ID=$API_ID"
+          aws --endpoint-url=$LSE apigateway get-rest-apis | jq .
+          RES_ID=$(aws --endpoint-url=$LSE apigateway get-resources --rest-api-id "$API_ID" \
+                    | jq -r '.items[] | select(.path=="/health") | .id')
+          echo "RES_ID=$RES_ID"
+          aws --endpoint-url=$LSE apigateway get-integration \
+            --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq .
+          aws --endpoint-url=$LSE lambda get-policy --function-name obs-health | jq . || true
+          aws --endpoint-url=$LSE apigateway test-invoke-method \
+            --rest-api-id "$API_ID" --resource-id "$RES_ID" --http-method GET | jq -r '.status, .body' || true
 
       - name: Health check (should be OK)
         run: |
+          set -euo pipefail
           URL="${{ steps.deploy.outputs.url }}"
           echo "Health URL: $URL"
           bash ./check_health.sh "$URL"
 
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
         run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=500}"
           set +e
-          OUT=$(bash ./check_health.sh "$HEALTH_URL")
+          OUT=$(bash ./check_health.sh "$URL")
           echo "$OUT"
           echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
           # recover
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=200}"
-
-
