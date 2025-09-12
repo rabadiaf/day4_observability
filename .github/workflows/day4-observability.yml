@@ -115,11 +115,15 @@ jobs:
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=500}"
-          set +e
+      - name: run script
+        run:
           OUT=$(bash ./check_health.sh "$URL")
           echo "$OUT"
           echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
-          # recover
+      - name: recover
+        run:
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=200}"
