@@ -72,6 +72,7 @@ def ensure_api():
         )
 
     # 6) Deploy
+
     apig.create_deployment(restApiId=api_id, stageName=STAGE)
 
     # 7) SIEMPRE imprime la URL (solo stdout)
