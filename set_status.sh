@@ -1,33 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-usage() { echo "Uso: $0 <200|500>"; exit 2; }
+STATUS_CODE="${1:-200}"
+FUNCTION="obs-health"
+ENDPOINT="${LSE:-http://localhost:4566}"
 
-CODE="${1:-}"
-[[ "$CODE" == "200" || "$CODE" == "500" ]] || usage
+# Invoca la función al menos una vez para que LocalStack "active" el $LATEST
+echo "Invoking Lambda $FUNCTION to activate it..."
+aws lambda invoke \
+  --function-name "$FUNCTION" \
+  --endpoint-url "$ENDPOINT" \
+  --payload '{}' \
+  /dev/null || echo "Warning: initial invoke failed"
 
-LSE=${LSE:-http://localhost:4566}
-FUNC=${FUNC:-obs-health}
-
-awsls() { aws --endpoint-url="$LSE" "$@"; }
-
-# warm-up
-awsls lambda get-function --function-name "$FUNC" >/dev/null
-awsls lambda invoke --function-name "$FUNC" /dev/null >/dev/null 2>&1 || true
-sleep 1
-
-# reintentos
-for i in {1..8}; do
-  if awsls lambda update-function-configuration \
-        --function-name "$FUNC" \
-        --environment "Variables={STATUS_CODE=${CODE}}"; then
-    echo "STATUS_CODE=$CODE aplicado (intento $i)"
-    exit 0
-  fi
-  echo "retry $i: warming up & retrying..."
-  awsls lambda invoke --function-name "$FUNC" /dev/null >/dev/null 2>&1 || true
-  sleep 1
-done
-
-echo "No se pudo actualizar STATUS_CODE tras varios intentos"; exit 1
+# Ahora sí: actualiza STATUS_CODE en las env vars
+aws lambda update-function-configuration \
+  --function-name "$FUNCTION" \
+  --endpoint-url "$ENDPOINT" \
+  --environment "Variables={STATUS_CODE=$STATUS_CODE}"
 
