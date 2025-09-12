@@ -10,6 +10,20 @@ jobs:
   deploy-and-check:
     runs-on: ubuntu-latest
 
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: lambda,apigateway,s3,iam,sts,cloudwatch
+        options: --name localstack_ci
+
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      LSE: http://localhost:4566
 
     steps:
       - uses: actions/checkout@v4
