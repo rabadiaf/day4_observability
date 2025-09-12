@@ -1,91 +1,60 @@
-#!/usr/bin/env python3
-import boto3, sys, json
+import boto3
+import json
+import os
 
-LSE   = "http://localhost:4566"
-REG   = "us-east-1"
-ACC   = "000000000000"
-FUNC  = "obs-health"
-STAGE = "dev"
-PATH  = "health"
+ENDPOINT = os.getenv("LSE", "http://localhost:4566")
+REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+LAMBDA_ARN = f"arn:aws:lambda:{REGION}:000000000000:function:obs-health"
 
-def ensure_api():
-    apig = boto3.client("apigateway", endpoint_url=LSE, region_name=REG,
-                        aws_access_key_id="test", aws_secret_access_key="test")
-    lam  = boto3.client("lambda", endpoint_url=LSE, region_name=REG,
-                        aws_access_key_id="test", aws_secret_access_key="test")
+client = boto3.client("apigateway", endpoint_url=ENDPOINT, region_name=REGION)
+lambda_client = boto3.client("lambda", endpoint_url=ENDPOINT, region_name=REGION)
 
-    # 1) API obs-api (idempotente)
-    apis = apig.get_rest_apis().get("items", [])
-    api = next((a for a in apis if a["name"] == "obs-api"), None)
-    if not api:
-        api = apig.create_rest_api(name="obs-api")
-    api_id = api["id"]
+# 1. Crear el REST API
+api = client.create_rest_api(name="observability-api")
+api_id = api["id"]
 
-    # 2) /health (idempotente)
-    resources = apig.get_resources(restApiId=api_id)["items"]
-    root_id = next(r["id"] for r in resources if r["path"] == "/")
-    health = next((r for r in resources if r.get("path") == f"/{PATH}"), None)
-    if not health:
-        health = apig.create_resource(restApiId=api_id, parentId=root_id, pathPart=PATH)
-    res_id = health["id"]
+# 2. Obtener ID del recurso raíz /
+resources = client.get_resources(restApiId=api_id)
+root_id = next(r["id"] for r in resources["items"] if r["path"] == "/")
 
-    # 3) Método GET (idempotente)
-    try:
-        apig.put_method(restApiId=api_id, resourceId=res_id, httpMethod="GET",
-                        authorizationType="NONE")
-    except apig.exceptions.ConflictException:
-        pass
+# 3. Crear recurso /health
+res = client.create_resource(restApiId=api_id, parentId=root_id, pathPart="health")
+res_id = res["id"]
 
-    # 4) Integración Lambda proxy
-    uri = (
-        f"arn:aws:apigateway:{REG}:lambda:path/2015-03-31/functions/"
-        f"arn:aws:lambda:{REG}:{ACC}:function:{FUNC}/invocations"
+# 4. Agregar método GET
+client.put_method(
+    restApiId=api_id,
+    resourceId=res_id,
+    httpMethod="GET",
+    authorizationType="NONE"
+)
+
+# 5. Integrar con Lambda
+client.put_integration(
+    restApiId=api_id,
+    resourceId=res_id,
+    httpMethod="GET",
+    type="AWS_PROXY",
+    integrationHttpMethod="POST",
+    uri=f"arn:aws:apigateway:{REGION}:lambda:path/2015-03-31/functions/{LAMBDA_ARN}/invocations"
+)
+
+# 6. Dar permiso a API Gateway para invocar Lambda
+try:
+    lambda_client.add_permission(
+        FunctionName="obs-health",
+        StatementId="apigateway-health",
+        Action="lambda:InvokeFunction",
+        Principal="apigateway.amazonaws.com",
+        SourceArn=f"arn:aws:execute-api:{REGION}:000000000000:{api_id}/*/GET/health"
     )
-    apig.put_integration(
-        restApiId=api_id,
-        resourceId=res_id,
-        httpMethod="GET",
-        type="AWS_PROXY",
-        integrationHttpMethod="POST",
-        uri=uri,
-    )
+except lambda_client.exceptions.ResourceConflictException:
+    pass  # Ya existe
 
-    # 5) Permiso Lambda → API GW (comodines) con SID único por API
-    source_arn = f"arn:aws:execute-api:{REG}:{ACC}:{api_id}/*/*/*"
-    sid = f"apigw-invoke-{api_id}"
-    try:
-        lam.add_permission(
-            FunctionName=FUNC,
-            StatementId=sid,
-            Action="lambda:InvokeFunction",
-            Principal="apigateway.amazonaws.com",
-            SourceArn=source_arn,
-        )
-    except lam.exceptions.ResourceConflictException:
-        lam.remove_permission(FunctionName=FUNC, StatementId=sid)
-        lam.add_permission(
-            FunctionName=FUNC,
-            StatementId=sid,
-            Action="lambda:InvokeFunction",
-            Principal="apigateway.amazonaws.com",
-            SourceArn=source_arn,
-        )
+# 7. Deploy API
+client.create_deployment(restApiId=api_id, stageName="dev")
 
-    # 6) Deploy
-
-    apig.create_deployment(restApiId=api_id, stageName=STAGE)
-
-    # 7) SIEMPRE imprime la URL (solo stdout)
-    url = f"{LSE}/restapis/{api_id}/{STAGE}/_user_request_/{PATH}"
-    print(url, flush=True)
-
-    # 8) (Opcional) Diagnóstico: NO hacer fallar el script si falla
-    try:
-        test = apig.test_invoke_method(restApiId=api_id, resourceId=res_id, httpMethod="GET")
-        sys.stderr.write(f"[apig.test] status={test.get('status')} body={test.get('body')}\n")
-    except Exception as e:
-        sys.stderr.write(f"[apig.test] WARNING: {e}\n")
-
-if __name__ == "__main__":
-    ensure_api()
+# 8. Imprimir URL final
+url = f"http://localhost:4566/restapis/{api_id}/dev/_user_request_/health"
+print(url)
 
