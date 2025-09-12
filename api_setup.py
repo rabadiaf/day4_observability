@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import boto3, json, sys
+import boto3, sys, json
 
 LSE   = "http://localhost:4566"
 REG   = "us-east-1"
@@ -29,14 +29,14 @@ def ensure_api():
         health = apig.create_resource(restApiId=api_id, parentId=root_id, pathPart=PATH)
     res_id = health["id"]
 
-    # 3) Método GET
+    # 3) Método GET (idempotente)
     try:
         apig.put_method(restApiId=api_id, resourceId=res_id, httpMethod="GET",
                         authorizationType="NONE")
     except apig.exceptions.ConflictException:
         pass
 
-    # 4) Integración AWS_PROXY con ARN correcto
+    # 4) Integración Lambda proxy
     uri = (
         f"arn:aws:apigateway:{REG}:lambda:path/2015-03-31/functions/"
         f"arn:aws:lambda:{REG}:{ACC}:function:{FUNC}/invocations"
@@ -71,22 +71,19 @@ def ensure_api():
             SourceArn=source_arn,
         )
 
-    # 6) Deploy del stage
+    # 6) Deploy
     apig.create_deployment(restApiId=api_id, stageName=STAGE)
 
-    # 7) Prueba directa por API GW (debug)
-    test = apig.test_invoke_method(
-        restApiId=api_id, resourceId=res_id, httpMethod="GET"
-    )
-    if test.get("status") != 200:
-        print(json.dumps(
-            {"api_id": api_id, "res_id": res_id,
-             "test_status": test.get("status"),
-             "body": test.get("body")}, indent=2), file=sys.stderr)
-
-    # 8) URL final
+    # 7) SIEMPRE imprime la URL (solo stdout)
     url = f"{LSE}/restapis/{api_id}/{STAGE}/_user_request_/{PATH}"
-    print(url)
+    print(url, flush=True)
+
+    # 8) (Opcional) Diagnóstico: NO hacer fallar el script si falla
+    try:
+        test = apig.test_invoke_method(restApiId=api_id, resourceId=res_id, httpMethod="GET")
+        sys.stderr.write(f"[apig.test] status={test.get('status')} body={test.get('body')}\n")
+    except Exception as e:
+        sys.stderr.write(f"[apig.test] WARNING: {e}\n")
 
 if __name__ == "__main__":
     ensure_api()
