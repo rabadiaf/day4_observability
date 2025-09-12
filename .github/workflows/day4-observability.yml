@@ -110,21 +110,14 @@ jobs:
 
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
         run: |
-          set -euo pipefail
           URL="${{ steps.deploy.outputs.url }}"
-          echo "URL=$URL"
-          bash ./check_health_500.sh "$URL"
-
-      - name: Verify still ALERT (optional)
-        run: |
-          set -euo pipefail
-          URL="${{ steps.deploy.outputs.url }}"
+          ./set_status.sh 500
           OUT=$(bash ./check_health.sh "$URL" || true)
           echo "$OUT"
-          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT"; exit 1)
+          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
 
       - name: Recover to 200
         run: |
-          set -euo pipefail
           URL="${{ steps.deploy.outputs.url }}"
-          bash ./check_health_200.sh "$URL"
+          ./set_status.sh 200
+          bash ./check_health.sh "$URL"

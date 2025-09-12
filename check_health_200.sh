@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-LSE=${LSE:-http://localhost:4566}
-
-awsls() {
-  aws --endpoint-url="$LSE" "$@"
-}
-
-# ahora sí:
-awsls lambda update-function-configuration \
-  --function-name obs-health \
-  --environment "Variables={STATUS_CODE=200}"
+URL="${1:?uso: check_health_200.sh URL}"
+./set_status.sh 200
+bash ./check_health.sh "$URL"   # falla si no es 200
 
