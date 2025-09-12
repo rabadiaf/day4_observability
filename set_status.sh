@@ -13,7 +13,7 @@ awsls() { aws --endpoint-url="$LSE" "$@"; }
 
 # warm-up
 awsls lambda get-function --function-name "$FUNC" >/dev/null
-awsls lambda invoke --function-name "$FUNC" /dev/null >/devnull 2>&1 || true
+awsls lambda invoke --function-name "$FUNC" /dev/null >/dev/null 2>&1 || true
 sleep 1
 
 # reintentos
