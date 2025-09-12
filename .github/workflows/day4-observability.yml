@@ -10,7 +10,6 @@ jobs:
   deploy-and-check:
     runs-on: ubuntu-latest
 
-    # Levanta LocalStack como service para este job
     services:
       localstack:
         image: localstack/localstack:latest
@@ -18,8 +17,7 @@ jobs:
           - 4566:4566
         env:
           SERVICES: lambda,apigateway,s3,iam,sts,cloudwatch
-        options: >-
-          --name localstack_ci
+        options: --name localstack_ci
 
     env:
       AWS_ACCESS_KEY_ID: test
@@ -49,30 +47,31 @@ jobs:
           done
 
       - name: Deploy Lambda + API (/health)
-        working-directory: day4_observability
         id: deploy
+        working-directory: ./day4_observability
         run: |
           chmod +x package_lambda.sh check_health.sh
           bash package_lambda.sh
           URL=$(python3 api_setup.py)
-          echo "HEALTH_URL=$URL" >> $GITHUB_ENV
-          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "HEALTH_URL=$URL" >> "$GITHUB_ENV"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Health check (should be OK)
+        working-directory: ./day4_observability
         run: |
           echo "Health URL: $HEALTH_URL"
-          OUT=$(bash day4_observability/check_health.sh "$HEALTH_URL" || true)
+          OUT=$(bash ./check_health.sh "$HEALTH_URL" || true)
           echo "$OUT"
-          echo "$OUT" | grep -q "OK:"  # falla el job si no hay OK
+          echo "$OUT" | grep -q "OK:"  # falla si no hay OK
 
-      # (Opcional) Simular fallo y verificar ALERT
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
+        working-directory: ./day4_observability
         run: |
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=500}"
           set +e
-          OUT=$(bash day4_observability/check_health.sh "$HEALTH_URL")
+          OUT=$(bash ./check_health.sh "$HEALTH_URL")
           echo "$OUT"
           echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
           # recover
