@@ -110,16 +110,38 @@ jobs:
 
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
         run: |
-          aws --endpoint-url=$LSE lambda update-function-configuration \
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          echo "URL=$URL"
+          # fuerza fallo
+          aws --endpoint-url="$LSE" lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=500}"
-      - name: run script
-        run:
-          OUT=$(bash ./check_health.sh "$URL")
+          # opcional: espera un toque a que aplique la config
+          sleep 1
+          # chequeo debe decir ALERT
+          OUT=$(bash ./check_health.sh "$URL" || true)
           echo "$OUT"
           echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
+
+      - name: run script (idem anterior, pero limpio)
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          OUT=$(bash ./check_health.sh "$URL" || true)
+          echo "$OUT"
+          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
+
       - name: recover
-        run:
-          aws --endpoint-url=$LSE lambda update-function-configuration \
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.url }}"
+          aws --endpoint-url="$LSE" lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=200}"
+          sleep 1
+          OUT=$(bash ./check_health.sh "$URL")
+          echo "$OUT"
+          echo "$OUT" | grep -q "OK:"  # opcional: validar que volvió a OK
+
+             
