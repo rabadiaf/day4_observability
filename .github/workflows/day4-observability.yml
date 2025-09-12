@@ -48,7 +48,7 @@ jobs:
 
       - name: Deploy Lambda + API (/health)
         id: deploy
-        working-directory: ./day4_observability
+          #working-directory: ./day4_observability
         run: |
           chmod +x package_lambda.sh check_health.sh
           bash package_lambda.sh
