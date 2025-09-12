@@ -1,0 +1,1 @@
+{"errorMessage": "name 'json' is not defined", "errorType": "NameError", "requestId": "f8b5636c-da2a-430a-88c5-372349131d9f", "stackTrace": ["  File \"/var/task/lambda_function.py\", line 8, in lambda_handler\n    \"body\": json.dumps(body),\n"]}
