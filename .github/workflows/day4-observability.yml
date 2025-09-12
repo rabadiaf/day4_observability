@@ -110,8 +110,6 @@ jobs:
 
       - name: Simulate failure (STATUS_CODE=500) and expect ALERT
         run: |
-          set -euo pipefail
-          URL="${{ steps.deploy.outputs.url }}"
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=500}"
@@ -122,8 +120,6 @@ jobs:
           echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
       - name: recover
         run:
-          set -euo pipefail
-          URL="${{ steps.deploy.outputs.url }}"
           aws --endpoint-url=$LSE lambda update-function-configuration \
             --function-name obs-health \
             --environment "Variables={STATUS_CODE=200}"
