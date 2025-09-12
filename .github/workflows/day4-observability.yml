@@ -113,35 +113,18 @@ jobs:
           set -euo pipefail
           URL="${{ steps.deploy.outputs.url }}"
           echo "URL=$URL"
-          # fuerza fallo
-          aws --endpoint-url="$LSE" lambda update-function-configuration \
-            --function-name obs-health \
-            --environment "Variables={STATUS_CODE=500}"
-          # opcional: espera un toque a que aplique la config
-          sleep 1
-          # chequeo debe decir ALERT
-          OUT=$(bash ./check_health.sh "$URL" || true)
-          echo "$OUT"
-          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
+          bash ./check_health_500.sh "$URL"
 
-      - name: run script (idem anterior, pero limpio)
+      - name: Verify still ALERT (optional)
         run: |
           set -euo pipefail
           URL="${{ steps.deploy.outputs.url }}"
           OUT=$(bash ./check_health.sh "$URL" || true)
           echo "$OUT"
-          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT" && exit 1)
+          echo "$OUT" | grep -q "ALERT:" || (echo "Expected ALERT"; exit 1)
 
-      - name: recover
+      - name: Recover to 200
         run: |
           set -euo pipefail
           URL="${{ steps.deploy.outputs.url }}"
-          aws --endpoint-url="$LSE" lambda update-function-configuration \
-            --function-name obs-health \
-            --environment "Variables={STATUS_CODE=200}"
-          sleep 1
-          OUT=$(bash ./check_health.sh "$URL")
-          echo "$OUT"
-          echo "$OUT" | grep -q "OK:"  # opcional: validar que volvió a OK
-
-             
+          bash ./check_health_200.sh "$URL"
