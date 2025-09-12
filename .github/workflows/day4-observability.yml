@@ -1,11 +1,7 @@
 name: day4-observability
 on:
   push:
-    paths:
-      - 'day4_observability/**'
-      - '.github/workflows/day4-observability.yml'
-  workflow_dispatch: {}
-
+    branches: [main]
 jobs:
   deploy-and-check:
     runs-on: ubuntu-latest
