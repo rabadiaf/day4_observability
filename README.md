@@ -14,4 +14,6 @@
 bash package_lambda.sh
 python3 api_setup.py  # prints API invoke URL
 bash check_health.sh  # calls the URL and prints OK/ALERT
+
+new user
 ```
